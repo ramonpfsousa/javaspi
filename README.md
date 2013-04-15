@@ -1,7 +1,7 @@
 javaspa
 =======
 
-Java Simple Persistence API
+Java Simple Persistence Interface
 
 API criada para simplificar o acesso ao banco de dados utilizando JDBC de uma maneira mais clara.
 
