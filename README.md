@@ -1,4 +1,4 @@
-javaspi
+javaspa
 =======
 
 Java Simple Persistence API
