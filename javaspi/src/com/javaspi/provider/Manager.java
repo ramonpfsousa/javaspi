@@ -12,10 +12,12 @@ import java.util.List;
 
 import com.javaspi.annotation.field.AutoIncrement;
 import com.javaspi.annotation.field.Column;
+import com.javaspi.annotation.field.Id;
 import com.javaspi.annotation.field.Sequence;
 import com.javaspi.annotation.type.Table;
 import com.javaspi.exception.ConfigNotFoundException;
-import com.javaspi.exception.NoInsertableClass;
+import com.javaspi.exception.NoInsertableClassException;
+import com.javaspi.exception.NoUpdatableClassException;
 import com.javaspi.exception.SequenceNameNotFoundException;
 
 public class Manager {
@@ -30,10 +32,10 @@ public class Manager {
 		return new Manager(AbstractProvider.getInstance(context).getConnection()); 
 	}
 	
-	public <T> T insert(T table) throws NoInsertableClass, IllegalArgumentException, IllegalAccessException, SequenceNameNotFoundException, SQLException {
+	public <T> T insert(T table) throws NoInsertableClassException, IllegalArgumentException, IllegalAccessException, SequenceNameNotFoundException, SQLException {
 		Table tableAnnotation = table.getClass().getAnnotation(Table.class);
 		if(tableAnnotation == null)
-			throw new NoInsertableClass(table.getClass());
+			throw new NoInsertableClassException(table.getClass());
 		
 		Field[] fields = table.getClass().getDeclaredFields();
 		StringBuilder columnNames = new StringBuilder();
@@ -70,11 +72,45 @@ public class Manager {
 		sb.append(nameTable).append("(").append(columnNames).append(") VALUES(").append(columnValues).append(")");
 		System.out.println(sb.toString());
 		executeInsert(sb.toString(), values);
-		return null;
+		return table;
 	}
 	
-	public <T> T update(T table) {
-		return null;
+	public <T> T update(T table) throws NoInsertableClassException, NoUpdatableClassException, IllegalArgumentException, IllegalAccessException, SQLException {
+		Table tableAnnotation = table.getClass().getAnnotation(Table.class);
+		if(tableAnnotation == null)
+			throw new NoUpdatableClassException(table.getClass());
+		
+		Field[] fields = table.getClass().getDeclaredFields();
+		StringBuilder columnSet = new StringBuilder();
+		StringBuilder columnWhere = new StringBuilder();
+		List<Object> valuesSet = new ArrayList<Object>();
+		List<Object> valuesWhere = new ArrayList<Object>();
+		String nameTable = (tableAnnotation.name() != null && !tableAnnotation.name().equals(""))?tableAnnotation.name().toUpperCase():table.getClass().getSimpleName().toUpperCase();
+		for (int i = 0; i < fields.length; i++) {
+			Field field = fields[i];
+			Column columnAnnotation = field.getAnnotation(Column.class);
+			String nameColumn = field.getName().toUpperCase();
+			if(columnAnnotation != null && columnAnnotation.name() != null && !columnAnnotation.name().equals(""))
+				nameColumn = columnAnnotation.name();
+			field.setAccessible(true);
+			Id idAnnotation = field.getAnnotation(Id.class);
+			if(idAnnotation != null) {
+				columnWhere.append(nameColumn).append("=? AND ");
+				valuesWhere.add(field.get(table));
+				continue;
+			}
+			columnSet.append(nameColumn).append("=?,");
+			valuesSet.add(field.get(table));
+			field.setAccessible(false);
+		}
+		columnSet.deleteCharAt(columnSet.length()-1);
+		columnWhere.delete(columnWhere.length()-5, columnWhere.length()-1);
+		StringBuilder sb = new StringBuilder("UPDATE ");
+		sb.append(nameTable).append(" SET ").append(columnSet).append(" WHERE ").append(columnWhere);
+		System.out.println(sb.toString());
+		valuesSet.addAll(valuesWhere);
+		executeUpdate(sb.toString(), valuesSet);
+		return table;
 	}
 	
 	public void executeProcedure(Object procedure) {
@@ -104,6 +140,12 @@ public class Manager {
 		PreparedStatement preparedStatement = conn.prepareStatement(query);
 		processValues(preparedStatement, values);
 		return preparedStatement.execute();
+	}
+	
+	private int executeUpdate(String query, List<Object> values) throws SQLException {
+		PreparedStatement preparedStatement = conn.prepareStatement(query);
+		processValues(preparedStatement, values);
+		return preparedStatement.executeUpdate();
 	}
 
 	private void processValues(PreparedStatement preparedStatement, List<Object> values) throws SQLException {
