@@ -15,8 +15,11 @@ import com.javaspi.annotation.field.Column;
 import com.javaspi.annotation.field.Id;
 import com.javaspi.annotation.field.Sequence;
 import com.javaspi.annotation.type.Table;
+import com.javaspi.annotation.type.View;
 import com.javaspi.exception.ConfigNotFoundException;
+import com.javaspi.exception.ConfigurationException;
 import com.javaspi.exception.NoInsertableClassException;
+import com.javaspi.exception.NoSelectableClassException;
 import com.javaspi.exception.NoUpdatableClassException;
 import com.javaspi.exception.SequenceNameNotFoundException;
 
@@ -104,13 +107,73 @@ public class Manager {
 			field.setAccessible(false);
 		}
 		columnSet.deleteCharAt(columnSet.length()-1);
-		columnWhere.delete(columnWhere.length()-5, columnWhere.length()-1);
+		
 		StringBuilder sb = new StringBuilder("UPDATE ");
-		sb.append(nameTable).append(" SET ").append(columnSet).append(" WHERE ").append(columnWhere);
+		sb.append(nameTable).append(" SET ").append(columnSet);
+		
+		if(columnWhere.length() > 0) {
+			columnWhere.delete(columnWhere.length()-5, columnWhere.length()-1);
+			sb.append(" WHERE ").append(columnWhere);
+		}
+		
 		System.out.println(sb.toString());
 		valuesSet.addAll(valuesWhere);
 		executeUpdate(sb.toString(), valuesSet);
 		return table;
+	}
+	
+	public <T> List<T> select(T table) throws NoSelectableClassException, ConfigurationException, IllegalArgumentException, IllegalAccessException, InstantiationException, SQLException {
+		Table tableAnnotation = table.getClass().getAnnotation(Table.class);
+		View viewAnnotation = table.getClass().getAnnotation(View.class);
+		if(tableAnnotation == null && tableAnnotation == null)
+			throw new NoSelectableClassException(table.getClass());
+		
+		String nameTable = null;
+		// testa se a classe possui as duas annotations
+		if(tableAnnotation != null && viewAnnotation == null)
+			nameTable = (tableAnnotation.name() != null && !tableAnnotation.name().equals(""))?tableAnnotation.name().toUpperCase():table.getClass().getSimpleName().toUpperCase();
+		
+		if(tableAnnotation == null && viewAnnotation != null)
+			nameTable = (viewAnnotation.name() != null && !viewAnnotation.name().equals(""))?viewAnnotation.name().toUpperCase():table.getClass().getSimpleName().toUpperCase();
+			
+		if(nameTable == null)
+			throw new ConfigurationException(table.getClass());
+		
+		Field[] fields = table.getClass().getDeclaredFields();
+		List<Object> values = new ArrayList<Object>();
+		StringBuilder columnNames = new StringBuilder();
+		StringBuilder columnWhere = new StringBuilder();
+		for (int i = 0; i < fields.length; i++) {
+			Field field = fields[i];
+			Column columnAnnotation = field.getAnnotation(Column.class);
+			String nameColumn = field.getName().toUpperCase();
+			if(columnAnnotation != null && columnAnnotation.name() != null && !columnAnnotation.name().equals(""))
+				nameColumn = columnAnnotation.name();
+			field.setAccessible(true);
+			Object value = field.get(table);
+			if(value != null) {
+				values.add(value);
+				columnWhere.append(nameColumn).append("=? AND ");
+			}
+			columnNames.append(nameColumn).append(",");
+			field.setAccessible(false);
+		}
+		
+		columnNames.deleteCharAt(columnNames.length()-1);
+		
+		StringBuilder sb = new StringBuilder("SELECT ");
+		sb.append(columnNames).append(" FROM ").append(nameTable);
+		
+		if(columnWhere.length() > 0) {
+			columnWhere.delete(columnWhere.length()-5, columnWhere.length()-1);
+			sb.append(" WHERE ").append(columnWhere);
+		}
+		
+		System.out.println(sb.toString());
+		
+		List<T> result = executeSelect(sb.toString(), values, table);
+		
+		return result;
 	}
 	
 	public void executeProcedure(Object procedure) {
@@ -139,19 +202,48 @@ public class Manager {
 	private boolean executeInsert(String query, List<Object> values) throws SQLException {
 		PreparedStatement preparedStatement = conn.prepareStatement(query);
 		processValues(preparedStatement, values);
-		return preparedStatement.execute();
+		boolean result = preparedStatement.execute(); 
+		return result;
 	}
 	
 	private int executeUpdate(String query, List<Object> values) throws SQLException {
 		PreparedStatement preparedStatement = conn.prepareStatement(query);
 		processValues(preparedStatement, values);
-		return preparedStatement.executeUpdate();
+		int result = preparedStatement.executeUpdate();
+		return result;
+	}
+	
+	private <T> List<T> executeSelect(String query, List<Object> values, T classe) throws SQLException, InstantiationException, IllegalAccessException {
+		PreparedStatement preparedStatement = conn.prepareStatement(query);
+		processValues(preparedStatement, values);
+		List<T> result = processResultSet(preparedStatement.executeQuery(), classe);
+		return result;
 	}
 
 	private void processValues(PreparedStatement preparedStatement, List<Object> values) throws SQLException {
 		for (int i = 1; i <= values.size(); i++) {
 			preparedStatement.setObject(i, values.get(i-1));
 		}
+	}
+
+	private <T> List<T> processResultSet(ResultSet resultSet, T classe) throws InstantiationException, IllegalAccessException, SQLException {
+		List<T> result = new ArrayList<T>();
+		while(resultSet.next()) {
+			T t = (T) classe.getClass().newInstance();
+			Field[] fields = classe.getClass().getDeclaredFields();
+			for (int i = 0; i < fields.length; i++) {
+				Field field = fields[i];
+				Column columnAnnotation = field.getAnnotation(Column.class);
+				String nameColumn = field.getName().toUpperCase();
+				if(columnAnnotation != null && columnAnnotation.name() != null && !columnAnnotation.name().equals(""))
+					nameColumn = columnAnnotation.name();
+				field.setAccessible(true);
+				field.set(t, resultSet.getObject(nameColumn));
+				field.setAccessible(false);
+			}
+			result.add(t);
+		}
+		return result;
 	}
 	
 }

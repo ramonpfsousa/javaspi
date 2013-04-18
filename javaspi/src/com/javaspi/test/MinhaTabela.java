@@ -11,13 +11,14 @@ public class MinhaTabela {
 	
 	@Id
 	@Sequence(name="estado_seq")
-	private Long id;
+	private Integer id;
 	private String nome;
 	private String sigla;
-	public Long getId() {
+	
+	public Integer getId() {
 		return id;
 	}
-	public void setId(Long id) {
+	public void setId(Integer id) {
 		this.id = id;
 	}
 	public String getNome() {
